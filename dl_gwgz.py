@@ -3,7 +3,7 @@ import requests
 import sys
 
 
-def parse_one_page(page_url: str, verbose=False): 
+def parse_volumes_1to6(page_url: str, verbose=False): 
     """
     This function works for pages: https://zh.wikisource.org/wiki/古文觀止/卷{i}
     where i = 1 to 6
@@ -19,7 +19,7 @@ def parse_one_page(page_url: str, verbose=False):
     titles = [t.text for t in titles]
     
     # Extract the text for each article
-    text = []
+    texts = []
     for h2 in soup.select('.mw-parser-output > h2'):
         p = h2.find_next_sibling('p')
         p = p.find_next_sibling('p')
@@ -32,20 +32,20 @@ def parse_one_page(page_url: str, verbose=False):
         
         # Remove spaces in string
         cleaned = p.text.replace(' ', '').strip()
-        text.append(cleaned)
+        texts.append(cleaned)
     
     if verbose:
         print('Parsing {} done.'.format(page_url))
         print('# of headlines:', len(titles))
-        print('# of text:', len(text))
+        print('# of text:', len(texts))
     
-    return (titles, text)
+    return (titles, texts)
 
 
-def download_page(page_url: str, output_file: str):
-    titles, text = parse_one_page(page_url, verbose=True)
+def save_parse_results(page_url: str, output_file: str):
+    titles, texts = parse_volumes_1to6(page_url, verbose=True)
 
-    if len(titles) != len(text):
+    if len(titles) != len(texts):
         sys.stderr.write('Parsing error on page: {}'.format(page_url))
         sys.stderr.flush()
         return False
@@ -54,22 +54,44 @@ def download_page(page_url: str, output_file: str):
         for i in range(len(titles)):
             f.write('==========\n')
             f.write(titles[i] + '\n')
-            f.write(text[i] + '\n')
+            f.write(texts[i] + '\n')
     return True
 
 
-def download_single_article(url):
+def parse_single_volume(url):
     """
-    This function works for a single article in 卷{i}, where i = 7 to 12
+    This function all articles in one 卷{i}, where i = 7 to 12
     E.g., 卷7 No. 1: 李密 陈情表
+
+    Args
+        url: the url for a volume, e.g., https://zh.wikisource.org/wiki/古文觀止/卷7
+    Return
+
     """
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'lxml')
 
-    for p in soup.select('.mw-parser-output > p'):
-        p = remove_embedded_tag(p, 'span')
-        p = remove_embedded_tag(p, 'br')
-        print(p)
+    titles = []
+    for h2 in soup.select('.mw-parser-output > h2 > .mw-headline'):
+        titles.append(h2.text)
+    
+    texts = []
+    for h2 in soup.select('.mw-parser-output > h2'):
+        p = h2.find_next_sibling('p')
+        p = p.find_next_sibling('p')
+
+        # Remvoe the embedded <small> tags
+        s = p.find('small')
+        while s:
+            _ = s.extract()
+            s = p.find('small')
+        
+        # Remove spaces in string
+        cleaned = p.text.replace(' ', '').strip()
+        cleaned = cleaned.replace('\"', '')
+        texts.append(cleaned)
+    
+    return (titles, texts)
 
 
 def remove_embedded_tag(container, tag: str):
@@ -83,6 +105,35 @@ def remove_embedded_tag(container, tag: str):
     return container
 
 
+def parse_volumes_8to12(page_url):
+    """
+    Parse articles one by one and return for those in Volume 8 to 12
+    Args
+    page_url: https://zh.wikisource.org/wiki/古文觀止
+    """
+    response = requests.get(page_url)
+    soup = BeautifulSoup(response.content, 'lxml')
+    base_url = 'https://zh.wikisource.org/'
+
+    for i, h2 in enumerate(soup.select('.mw-parser-output > h2')):
+        if i >= 8: # 8 because there is a preface
+            ol = h2.find_next_sibling('ol')
+            
+            titles = []
+            for li in ol.find_all('li'):
+                a = li.find_all('a')
+                titles.append(a[1]['title'])
+                url = a[1]['href']
+                parse_one_article(base_url + url)
+
+
+def parse_one_article(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'lxml')
+    
+    pass
+
+
 def main():
     # 卷1 -> 周文
     # 卷2 -> 周文
@@ -92,7 +143,15 @@ def main():
     # 卷6 -> 汉文
     urls1 = ['https://zh.wikisource.org/wiki/古文觀止/卷{}'.format(i) for i in [1,2,3,4,5,6]]
     for i, url in enumerate(urls1):
-        download_page(url, '{}.txt'.format(i+1))
+        save_parse_results(url, 'vol_{}.txt'.format(i+1))
+    
+    # 卷7 -> 六朝 唐文
+    url_v7 = 'https://zh.wikisource.org/wiki/古文觀止/卷7'
+    save_parse_results(url_v7, 'vol_7.txt')
+
+    # 卷8 -> 唐文
+    # 
+    
 
 
 def debug():
@@ -116,8 +175,12 @@ def debug():
 
 
 def test():
-    url = 'https://zh.wikisource.org/wiki/%E9%99%B3%E6%83%85%E8%A1%A8_(%E8%A5%BF%E6%99%89)'
-    download_single_article(url)
+    # url = 'https://zh.wikisource.org/wiki/古文觀止/卷7'
+    # titles, texts = parse_single_volume(url)
+    # print(len(titles), len(texts))
+
+    page_url = 'https://zh.wikisource.org/wiki/古文觀止'
+    parse_volumes_8to12(page_url)
 
 
 if __name__ == "__main__":
